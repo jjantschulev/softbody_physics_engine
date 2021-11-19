@@ -1,7 +1,10 @@
 use nannou::prelude::*;
 use physics_engine::physics::{
-    BoundingBox, Entity, FixedBody, HasBoundingBox, MassPoint, PhysicsEngine, PhysicsEngineConfig,
-    PointCollision, SoftBody, Spring,
+    bounding_box::{BoundingBox, HasBoundingBox},
+    collision_detection::PointCollision,
+    engine::{Entity, PhysicsEngine, PhysicsEngineConfig},
+    fixed_body::FixedBody,
+    soft_body::{MassPoint, SoftBody, Spring},
 };
 
 fn main() {
@@ -21,7 +24,7 @@ fn model(app: &App) -> Model {
     // Create a new window! Store the ID so we can refer to it later.
     let _window = app
         .new_window()
-        .size(1024, 1024)
+        .size(1424, 1224)
         .title("nannou")
         .view(view) // The function that will be called for presenting graphics to a frame.
         .event(event) // The function that will be called when the window receives events.
@@ -30,14 +33,14 @@ fn model(app: &App) -> Model {
 
     let mut engine = PhysicsEngine::new(PhysicsEngineConfig {
         gravity: Vec2::new(0.0, -30.0),
-        drag_coefficient: 0.01,
+        drag_coefficient: 0.02,
     });
 
     let mass = 0.3;
-    let stiffness = 50.0;
-    let damping = 1.0;
+    let stiffness = 200.0;
+    let damping = 2.0;
     let mass_point_dist = 10.0;
-    let repel_force = 80.0;
+    let repel_force = 100.0;
 
     let make_body = |x, y, w, h| {
         Entity::Soft(SoftBody::new_rect(
@@ -53,24 +56,47 @@ fn model(app: &App) -> Model {
 
     engine
         .world_mut()
+        // .add_entity(Entity::Fixed(FixedBody::Polygon {
+        //     verts: vec![
+        //         Vec2::new(-120.0, -50.0),
+        //         Vec2::new(-100.0, -100.0),
+        //         Vec2::new(100.0, -100.0),
+        //         Vec2::new(120.0, -50.0),
+        //         Vec2::new(140.0, -50.0),
+        //         Vec2::new(120.0, -120.0),
+        //         Vec2::new(-120.0, -120.0),
+        //         Vec2::new(-140.0, -50.0),
+        //     ],
+        // }))
+        // .add_entity(Entity::Fixed(FixedBody::Polygon {
+        //     verts: vec![
+        //         Vec2::new(-480.0, 100.0),
+        //         Vec2::new(-480.0, 80.0),
+        //         Vec2::new(-180.0, -100.0),
+        //         Vec2::new(-180.0, -80.0),
+        //     ],
+        // }))
         .add_entity(Entity::Fixed(FixedBody::Polygon {
             verts: vec![
-                Vec2::new(-120.0, -50.0),
-                Vec2::new(-100.0, -100.0),
-                Vec2::new(100.0, -100.0),
-                Vec2::new(120.0, -50.0),
-                Vec2::new(140.0, -50.0),
-                Vec2::new(120.0, -120.0),
-                Vec2::new(-120.0, -120.0),
-                Vec2::new(-140.0, -50.0),
+                Vec2::new(-240.0, -100.0),
+                Vec2::new(-350.0, -400.0),
+                Vec2::new(-400.0, -350.0),
             ],
         }))
         .add_entity(Entity::Fixed(FixedBody::Polygon {
             verts: vec![
-                Vec2::new(-480.0, 100.0),
-                Vec2::new(-480.0, 80.0),
-                Vec2::new(-180.0, -100.0),
-                Vec2::new(-180.0, -80.0),
+                Vec2::new(350.0, 300.0),
+                Vec2::new(340.0, 300.0),
+                Vec2::new(360.0, 240.0),
+                Vec2::new(370.0, 240.0),
+            ],
+        }))
+        .add_entity(Entity::Fixed(FixedBody::Polygon {
+            verts: vec![
+                Vec2::new(450.0, 300.0),
+                Vec2::new(460.0, 300.0),
+                Vec2::new(440.0, 240.0),
+                Vec2::new(430.0, 240.0),
             ],
         }))
         .add_entity(Entity::Fixed(FixedBody::Rect {
@@ -84,18 +110,26 @@ fn model(app: &App) -> Model {
         .add_entity(Entity::Fixed(FixedBody::Rect {
             pos: Vec2::new(482.0, -472.0),
             size: Vec2::new(30.0, 1024.0),
+        }))
+        .add_entity(Entity::Fixed(FixedBody::Polygon {
+            verts: vec![
+                Vec2::new(512.0, 562.0),
+                Vec2::new(482.0, 562.0),
+                Vec2::new(300.0, 900.0),
+                Vec2::new(330.0, 900.0),
+            ],
         }));
 
     let num_bodies_x = 10;
     let num_bodies_y = 2;
     let w = 50.0;
-    let h = 80.0;
+    let h = 50.0;
 
     for x in -num_bodies_x / 2..num_bodies_x / 2 + 1 {
         for y in 0..num_bodies_y {
             engine.world_mut().add_entity(make_body(
                 x as f32 * w * 1.1,
-                400.0 + y as f32 * h * 2.0,
+                100.0 + y as f32 * h * 2.0,
                 w,
                 h,
             ));
@@ -123,7 +157,7 @@ fn update(app: &App, model: &mut Model, update: Update) {
         }
         model
             .engine
-            .update(4.0 * update.since_last.as_secs_f32() / (ITERATIONS as f32));
+            .update(3.0 * update.since_last.as_secs_f32() / (ITERATIONS as f32));
     }
     model.framerate = (1.0 / update.since_last.as_secs_f64()) as usize;
 }
@@ -137,11 +171,16 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                 let mut best_dist = f32::MAX;
 
                 for (i, soft_body) in model.engine.world().soft_bodies().iter().enumerate() {
-                    for (j, mass) in soft_body.points().iter().enumerate() {
-                        let dist = mass.pos().distance(app.mouse.position());
-                        if dist < 15.0 && dist < best_dist {
-                            best_dist = dist;
-                            pair = Some((i, j));
+                    if soft_body
+                        .get_bounding_box()
+                        .contains_point(app.mouse.position())
+                    {
+                        for (j, mass) in soft_body.points().iter().enumerate() {
+                            let dist = mass.pos().distance(app.mouse.position());
+                            if dist < 50.0 && dist < best_dist {
+                                best_dist = dist;
+                                pair = Some((i, j));
+                            }
                         }
                     }
                 }
