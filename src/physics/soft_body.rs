@@ -2,9 +2,10 @@ use nannou::glam::{IVec2, Vec2};
 
 use super::{
     bounding_box::{BoundingBox, HasBoundingBox},
-    collision_detection::PointCollision,
-    engine::PhysicsEngineConfig,
+    engine::{GroupedMassPoints, MassPointBodyType, PhysicsEngineConfig},
     fixed_body::FixedBody,
+    mass_point::MassPoint,
+    spring::Spring,
 };
 
 pub struct SoftBody {
@@ -28,7 +29,7 @@ impl SoftBody {
             points: vec![],
             connections: vec![],
             repel_force,
-            repel_distance: point_distance,
+            repel_distance: point_distance * 0.95,
         };
 
         let num_points = IVec2::new(
@@ -52,38 +53,22 @@ impl SoftBody {
                 body.add_connection(
                     get_index(x, y),
                     get_index(x + 1, y),
-                    Spring {
-                        length: points_dist.x,
-                        stiffness,
-                        damping,
-                    },
+                    Spring::new(points_dist.x, stiffness, damping),
                 );
                 body.add_connection(
                     get_index(x, y),
                     get_index(x, y + 1),
-                    Spring {
-                        length: points_dist.y,
-                        stiffness,
-                        damping,
-                    },
+                    Spring::new(points_dist.y, stiffness, damping),
                 );
                 body.add_connection(
                     get_index(x, y),
                     get_index(x + 1, y + 1),
-                    Spring {
-                        length: points_dist.length(),
-                        stiffness,
-                        damping,
-                    },
+                    Spring::new(points_dist.length(), stiffness, damping),
                 );
                 body.add_connection(
                     get_index(x + 1, y),
                     get_index(x, y + 1),
-                    Spring {
-                        length: points_dist.length(),
-                        stiffness,
-                        damping,
-                    },
+                    Spring::new(points_dist.length(), stiffness, damping),
                 );
             }
         }
@@ -92,11 +77,7 @@ impl SoftBody {
             body.add_connection(
                 get_index(x, num_points.y - 1),
                 get_index(x + 1, num_points.y - 1),
-                Spring {
-                    length: points_dist.x,
-                    stiffness,
-                    damping,
-                },
+                Spring::new(points_dist.x, stiffness, damping),
             )
         }
 
@@ -104,11 +85,7 @@ impl SoftBody {
             body.add_connection(
                 get_index(num_points.x - 1, y),
                 get_index(num_points.x - 1, y + 1),
-                Spring {
-                    length: points_dist.y,
-                    stiffness,
-                    damping,
-                },
+                Spring::new(points_dist.y, stiffness, damping),
             )
         }
 
@@ -119,7 +96,7 @@ impl SoftBody {
         &mut self,
         delta: f32,
         colliders: &[FixedBody],
-        other_soft_mass_points: &[(usize, BoundingBox, Vec<(usize, Vec2)>)],
+        other_mass_points: &GroupedMassPoints,
         my_index: usize,
         config: &PhysicsEngineConfig,
     ) {
@@ -135,17 +112,17 @@ impl SoftBody {
                 .overlapping(&collider.get_bounding_box())
             {
                 for mass in self.points.iter_mut() {
-                    mass.handle_collision(collider);
+                    mass.handle_collision(collider, config);
                 }
             }
         }
 
         let my_bb = self.get_bounding_box();
         for (i, mass) in self.points.iter_mut().enumerate() {
-            for (j, bb, points) in other_soft_mass_points {
+            for (t, j, bb, points) in other_mass_points {
                 if bb.overlapping(&my_bb) {
                     for (k, other) in points {
-                        if !(i == *k && my_index == *j) {
+                        if !(i == *k && my_index == *j && t == &MassPointBodyType::Soft) {
                             let dir = mass.pos - *other;
                             let len = dir.length();
                             if len < self.repel_distance {
@@ -197,83 +174,5 @@ impl HasBoundingBox for SoftBody {
             start: min - offset,
             stop: max + offset,
         }
-    }
-}
-
-pub struct MassPoint {
-    mass: f32,
-    pos: Vec2,
-    vel: Vec2,
-    force: Vec2,
-}
-
-impl MassPoint {
-    pub fn new(mass: f32, pos: Vec2) -> Self {
-        Self {
-            mass,
-            pos,
-            vel: Vec2::ZERO,
-            force: Vec2::ZERO,
-        }
-    }
-
-    fn update(&mut self, delta: f32, config: &PhysicsEngineConfig) {
-        self.force += config.gravity * self.mass;
-        self.force += -self.vel.normalize_or_zero()
-            * self.vel.length()
-            // * self.vel.length()
-            * config.drag_coefficient;
-
-        let acceleration = self.force / self.mass;
-        self.force = Vec2::ZERO;
-        self.vel += acceleration * delta;
-        self.pos += self.vel * delta;
-    }
-
-    fn handle_collision(&mut self, collider: &FixedBody) {
-        if let Some(point) = collider.closest_point_on_edge(self.pos) {
-            let normal = (point - self.pos).normalize_or_zero();
-            self.pos = point;
-            self.vel = (self.vel - 2.0 * (self.vel.dot(normal)) * normal) * 0.99;
-        }
-    }
-
-    pub fn add_force(&mut self, force: Vec2) {
-        self.force += force;
-    }
-
-    /// Get a reference to the mass point's pos.
-    pub fn pos(&self) -> Vec2 {
-        self.pos
-    }
-
-    /// Set the mass point's pos.
-    pub fn set_pos(&mut self, pos: Vec2) {
-        self.pos = pos;
-    }
-}
-
-pub struct Spring {
-    length: f32,
-    stiffness: f32,
-    damping: f32,
-}
-
-impl Spring {
-    pub fn new(length: f32, stiffness: f32, damping: f32) -> Self {
-        Self {
-            length,
-            stiffness,
-            damping,
-        }
-    }
-
-    pub fn calculate_force(&self, a: &MassPoint, b: &MassPoint) -> Vec2 {
-        let dist = a.pos.distance(b.pos);
-        let force = self.stiffness * (dist - self.length);
-        let dir = (b.pos - a.pos).normalize_or_zero();
-        let movement_difference = b.vel - a.vel;
-        let damping = self.damping * dir.dot(movement_difference);
-        dir * (force + damping)
     }
 }

@@ -1,10 +1,14 @@
+use itertools::Itertools;
 use nannou::prelude::*;
 use physics_engine::physics::{
     bounding_box::{BoundingBox, HasBoundingBox},
     collision_detection::PointCollision,
-    engine::{Entity, PhysicsEngine, PhysicsEngineConfig},
+    engine::{Entity, MassPointBodyType, PhysicsEngine, PhysicsEngineConfig},
     fixed_body::FixedBody,
-    soft_body::{MassPoint, SoftBody, Spring},
+    mass_point::MassPoint,
+    pressure_body::PressureBody,
+    soft_body::SoftBody,
+    spring::Spring,
 };
 
 fn main() {
@@ -16,7 +20,7 @@ struct Model {
     _window: WindowId,
     engine: PhysicsEngine,
     mouse_spring: Spring,
-    attached_mass_point: Option<(usize, usize)>,
+    attached_mass_point: Option<(MassPointBodyType, usize, usize)>,
     framerate: usize,
 }
 
@@ -32,15 +36,16 @@ fn model(app: &App) -> Model {
         .unwrap();
 
     let mut engine = PhysicsEngine::new(PhysicsEngineConfig {
-        gravity: Vec2::new(0.0, -30.0),
+        gravity: Vec2::new(0.0, -50.0),
         drag_coefficient: 0.02,
+        friction: 0.99,
     });
 
-    let mass = 0.3;
-    let stiffness = 200.0;
+    let mass = 0.5;
+    let stiffness = 500.0;
     let damping = 2.0;
     let mass_point_dist = 10.0;
-    let repel_force = 100.0;
+    let repel_force = 300.0;
 
     let make_body = |x, y, w, h| {
         Entity::Soft(SoftBody::new_rect(
@@ -120,8 +125,24 @@ fn model(app: &App) -> Model {
             ],
         }));
 
-    let num_bodies_x = 10;
-    let num_bodies_y = 2;
+    let num_pressure_x = 0;
+    for x in -num_pressure_x / 2..num_pressure_x / 2 + 1 {
+        engine
+            .world_mut()
+            .add_entity(Entity::Pressure(PressureBody::new_circle(
+                Vec2::new(x as f32 * 100.0, -200.0),
+                10.0,
+                20,
+                300.0,
+                0.4,
+                200.0,
+                10.0,
+                repel_force,
+            )));
+    }
+
+    let num_bodies_x = 5;
+    let num_bodies_y = 0;
     let w = 50.0;
     let h = 50.0;
 
@@ -149,15 +170,22 @@ fn update(app: &App, model: &mut Model, update: Update) {
     const ITERATIONS: usize = 50;
 
     for _ in 0..ITERATIONS {
-        if let Some((i, j)) = model.attached_mass_point {
-            let mass = &mut model.engine.world_mut().soft_bodies_mut()[i].points_mut()[j];
+        if let Some((t, i, j)) = model.attached_mass_point {
+            let mass = match t {
+                MassPointBodyType::Pressure => {
+                    &mut model.engine.world_mut().pressure_bodies_mut()[i].points_mut()[j]
+                }
+                MassPointBodyType::Soft => {
+                    &mut model.engine.world_mut().soft_bodies_mut()[i].points_mut()[j]
+                }
+            };
             let mouse_mass = MassPoint::new(100.0, app.mouse.position());
             let force = model.mouse_spring.calculate_force(&mass, &mouse_mass);
             mass.add_force(force);
         }
         model
             .engine
-            .update(3.0 * update.since_last.as_secs_f32() / (ITERATIONS as f32));
+            .update(2.0 * update.since_last.as_secs_f32() / (ITERATIONS as f32));
     }
     model.framerate = (1.0 / update.since_last.as_secs_f64()) as usize;
 }
@@ -179,7 +207,22 @@ fn event(app: &App, model: &mut Model, event: WindowEvent) {
                             let dist = mass.pos().distance(app.mouse.position());
                             if dist < 50.0 && dist < best_dist {
                                 best_dist = dist;
-                                pair = Some((i, j));
+                                pair = Some((MassPointBodyType::Soft, i, j));
+                            }
+                        }
+                    }
+                }
+
+                for (i, soft_body) in model.engine.world().pressure_bodies().iter().enumerate() {
+                    if soft_body
+                        .get_bounding_box()
+                        .contains_point(app.mouse.position())
+                    {
+                        for (j, mass) in soft_body.points().iter().enumerate() {
+                            let dist = mass.pos().distance(app.mouse.position());
+                            if dist < 50.0 && dist < best_dist {
+                                best_dist = dist;
+                                pair = Some((MassPointBodyType::Pressure, i, j));
                             }
                         }
                     }
@@ -210,9 +253,15 @@ fn view(app: &App, model: &Model, frame: Frame) {
     for soft_body in model.engine.world().soft_bodies().iter() {
         soft_body.draw(&draw);
     }
+    for pressure_body in model.engine.world().pressure_bodies().iter() {
+        pressure_body.draw(&draw);
+    }
 
-    if let Some((i, j)) = model.attached_mass_point {
-        let mass = &model.engine.world().soft_bodies()[i].points()[j];
+    if let Some((t, i, j)) = model.attached_mass_point {
+        let mass = match t {
+            MassPointBodyType::Pressure => &model.engine.world().pressure_bodies()[i].points()[j],
+            MassPointBodyType::Soft => &model.engine.world().soft_bodies()[i].points()[j],
+        };
         draw.line()
             .start(app.mouse.position())
             .end(mass.pos())
@@ -262,6 +311,18 @@ impl Drawable for SoftBody {
                 .start(self.points()[*a].pos())
                 .end(self.points()[*b].pos())
                 .color(BLUE);
+        }
+        self.get_bounding_box().draw(draw);
+    }
+}
+
+impl Drawable for PressureBody {
+    fn draw(&self, draw: &Draw) {
+        for mass in self.points().iter() {
+            draw.ellipse().xy(mass.pos()).radius(5.0).color(BLUE);
+        }
+        for (a, b) in self.points().iter().circular_tuple_windows() {
+            draw.line().start(a.pos()).end(b.pos()).color(BLUE);
         }
         self.get_bounding_box().draw(draw);
     }
