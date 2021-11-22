@@ -7,9 +7,11 @@ use physics_engine::physics::{
     fixed_body::FixedBody,
     mass_point::MassPoint,
     pressure_body::PressureBody,
-    soft_body::SoftBody,
+    soft_body::{ShapeType, SoftBody},
     spring::Spring,
 };
+
+const DEBUG_DRAW: bool = false;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -125,26 +127,25 @@ fn model(app: &App) -> Model {
             ],
         }));
 
-    let num_pressure_x = 0;
+    let num_pressure_x = 2;
     for x in -num_pressure_x / 2..num_pressure_x / 2 + 1 {
         engine
             .world_mut()
             .add_entity(Entity::Pressure(PressureBody::new_circle(
                 Vec2::new(x as f32 * 100.0, -200.0),
-                10.0,
-                20,
-                300.0,
-                0.4,
-                200.0,
+                50.0,
+                30,
+                100.0,
+                1.0,
                 10.0,
                 repel_force,
             )));
     }
 
     let num_bodies_x = 5;
-    let num_bodies_y = 0;
-    let w = 50.0;
-    let h = 50.0;
+    let num_bodies_y = 1;
+    let w = 80.0;
+    let h = 80.0;
 
     for x in -num_bodies_x / 2..num_bodies_x / 2 + 1 {
         for y in 0..num_bodies_y {
@@ -303,28 +304,70 @@ impl Drawable for FixedBody {
 
 impl Drawable for SoftBody {
     fn draw(&self, draw: &Draw) {
-        for mass in self.points().iter() {
-            draw.ellipse().xy(mass.pos()).radius(5.0).color(BLUE);
+        match self.shape_type() {
+            ShapeType::Rect { w, h } => {
+                if DEBUG_DRAW {
+                    for mass in self.points().iter() {
+                        draw.ellipse().xy(mass.pos()).radius(5.0).color(BLUE);
+                    }
+                    for (a, b, _) in self.connections() {
+                        draw.line()
+                            .start(self.points()[*a].pos())
+                            .end(self.points()[*b].pos())
+                            .color(BLUE);
+                    }
+                    self.get_bounding_box().draw(draw);
+                } else {
+                    let i = |x, y| (y * w + x) as usize;
+                    let mut points: Vec<Vec2> = Vec::with_capacity((w + h) * 2);
+                    for x in 0..*w {
+                        points.push(self.points()[i(x, 0)].pos());
+                    }
+                    for y in 1..*h {
+                        points.push(self.points()[i(*w - 1, y)].pos());
+                    }
+                    for x in (*w..0).rev() {
+                        points.push(self.points()[i(x, *h)].pos());
+                    }
+                    for y in (1..*h).rev() {
+                        points.push(self.points()[i(0, y)].pos());
+                    }
+                    draw.polygon().points(points).color(GREEN);
+                }
+            }
+            ShapeType::Other => {
+                for mass in self.points().iter() {
+                    draw.ellipse().xy(mass.pos()).radius(5.0).color(BLUE);
+                }
+                for (a, b, _) in self.connections() {
+                    draw.line()
+                        .start(self.points()[*a].pos())
+                        .end(self.points()[*b].pos())
+                        .color(BLUE);
+                }
+                if DEBUG_DRAW {
+                    self.get_bounding_box().draw(draw);
+                }
+            }
         }
-        for (a, b, _) in self.connections() {
-            draw.line()
-                .start(self.points()[*a].pos())
-                .end(self.points()[*b].pos())
-                .color(BLUE);
-        }
-        self.get_bounding_box().draw(draw);
     }
 }
 
 impl Drawable for PressureBody {
     fn draw(&self, draw: &Draw) {
-        for mass in self.points().iter() {
-            draw.ellipse().xy(mass.pos()).radius(5.0).color(BLUE);
+        if DEBUG_DRAW {
+            for mass in self.points().iter() {
+                draw.ellipse().xy(mass.pos()).radius(5.0).color(BLUE);
+            }
+            for (a, b) in self.points().iter().circular_tuple_windows() {
+                draw.line().start(a.pos()).end(b.pos()).color(BLUE);
+            }
+            self.get_bounding_box().draw(draw);
+        } else {
+            draw.polygon()
+                .points(self.points().iter().map(|v| *v.pos()))
+                .color(BLUE);
         }
-        for (a, b) in self.points().iter().circular_tuple_windows() {
-            draw.line().start(a.pos()).end(b.pos()).color(BLUE);
-        }
-        self.get_bounding_box().draw(draw);
     }
 }
 

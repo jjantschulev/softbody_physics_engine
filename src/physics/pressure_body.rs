@@ -25,7 +25,6 @@ impl PressureBody {
         num_points: usize,
         pressure_constant: f32,
         mass: f32,
-        stiffness: f32,
         damping: f32,
         repel_force: f32,
     ) -> PressureBody {
@@ -36,12 +35,15 @@ impl PressureBody {
             let p = pos + m * (Vec2::new(radius, 0.0));
             points.push(MassPoint::new(mass, p));
         }
+        let d_pos = points[0].pos - points[1].pos;
+        let point_pressure = 2.0 * d_pos.y * pressure_constant;
+        let stiffness = -point_pressure / (2.0 * d_pos.x);
         let mut body = PressureBody {
             points,
             pressure_constant,
-            spring: Spring::new(segment_len, stiffness, damping),
+            spring: Spring::new(0.0, stiffness, damping),
             repel_force,
-            repel_distance: 10.0,
+            repel_distance: segment_len,
             original_area: 0.0,
         };
         body.original_area = body.area();
@@ -120,6 +122,14 @@ impl PressureBody {
             area += a.pos.x * b.pos.y - b.pos.x * a.pos.y;
         }
         area / 2.0
+    }
+
+    pub fn center_of_mass(&self) -> Vec2 {
+        let mut center = Vec2::ZERO;
+        for point in self.points.iter() {
+            center += point.pos;
+        }
+        center / self.points.len() as f32
     }
 
     /// Get a reference to the pressure body's points.

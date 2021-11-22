@@ -8,11 +8,17 @@ use super::{
     spring::Spring,
 };
 
+pub enum ShapeType {
+    Rect { w: usize, h: usize },
+    Other,
+}
+
 pub struct SoftBody {
     points: Vec<MassPoint>,
     connections: Vec<(usize, usize, Spring)>,
     repel_force: f32,
     repel_distance: f32,
+    shape_type: ShapeType,
 }
 
 impl SoftBody {
@@ -25,17 +31,21 @@ impl SoftBody {
         repel_force: f32,
         point_distance: f32,
     ) -> SoftBody {
+        let num_points = IVec2::new(
+            (size.x / point_distance).round() as i32,
+            (size.y / point_distance).round() as i32,
+        );
+
         let mut body = SoftBody {
             points: vec![],
             connections: vec![],
             repel_force,
             repel_distance: point_distance * 0.95,
+            shape_type: ShapeType::Rect {
+                w: num_points.x as usize,
+                h: num_points.y as usize,
+            },
         };
-
-        let num_points = IVec2::new(
-            (size.x / point_distance).round() as i32,
-            (size.y / point_distance).round() as i32,
-        );
 
         let points_dist = Vec2::new(size.x / num_points.x as f32, size.y / num_points.y as f32);
 
@@ -158,6 +168,11 @@ impl SoftBody {
     /// Get a mutable reference to the soft body's points.
     pub fn points_mut(&mut self) -> &mut Vec<MassPoint> {
         &mut self.points
+    }
+
+    /// Get a reference to the soft body's shape type.
+    pub fn shape_type(&self) -> &ShapeType {
+        &self.shape_type
     }
 }
 
